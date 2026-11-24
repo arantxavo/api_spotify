@@ -1,6 +1,11 @@
 from flask import Flask, request
+import requests
+import os 
+from dotenv import load_dotenv
 
 app = Flask(__name__)
+
+load_dotenv()
 
 # Consulta raíz
 @app.route("/")
@@ -8,21 +13,20 @@ def hello():
     return "Bienvenid@ al gestor de preferencias musicales"
 
 USUARIOS = []
-CLIENT_ID = ef6807ab3e644ad1bd096b0b6105eade
-CLIENT_SECRET = a04c4a1c39b44d8ea776a0cab19d2d0a
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 
 
-# Leer usuarios
+# Endpoint para leer usuarios
 @app.route("/usuarios")
 def leer_usuarios():
-    global USUARIOS
+
     return {"usuarios": USUARIOS}
 
 
-# Dar de alta nuevo usuario
+# Enpoint para dar de alta nuevo usuario
 @app.route("/alta_usuario", methods=["POST"])
 def alta_usuario():
-    global USUARIOS
 
     usuario_nuevo = request.get_json()
     nuevo_id = max((usuario["id"] for usuario in USUARIOS), default = 0) + 1 # Coge el ID mayor y suma 1 (IA)
@@ -54,10 +58,10 @@ def alta_usuario():
     }, 201
 
 
-# Eliminar un usuario
+# Endpoint para eliminar un usuario
 @app.route("/eliminar", methods=["DELETE"])
 def eliminar_usuario():
-    global USUARIOS
+
     nickname = request.args.get("nickname")
 
     for usuario in USUARIOS:
@@ -70,10 +74,10 @@ def eliminar_usuario():
     return {"message": "Usuario no encontrado"}, 404
 
 
-# Actualizar un usuario
+# Endpoint para actualizar un usuario
 @app.route("/actualizar/<nickname>", methods=["PUT"])
 def actualizar_usuario(nickname):
-    global USUARIOS
+
     nombre = request.args.get("nombre")
 
     for usuario in USUARIOS:
@@ -86,10 +90,9 @@ def actualizar_usuario(nickname):
     return {"message": "Usuario no encontrado"}, 404 
 
 
-# Guardar preferencias musicales
+# Endpoint para guardar o actualizar preferencias musicales
 @app.route("/gustos_musicales/<nickname>", methods=["PATCH"])
 def guardar_gustos_musicales(nickname):
-    global USUARIOS
 
     gustos_musicales = request.get_json()
 
@@ -110,27 +113,89 @@ def guardar_gustos_musicales(nickname):
     return {"message": "Usuario no encontrado"}, 404     
 
 
-# SPOTIFY
+
 # Función para obtener el token, pasandole el id y la passw y formatearlo
 def obtener_token():
     url = "https://accounts.spotify.com/api/token"
 
-    response = request.posts(
+    response = requests.post(
         url,
         data ={"grant_type": "client_credentials"},
-        auth = {CLIENT_ID, CLIENT_SECRET}
+        auth = (CLIENT_ID, CLIENT_SECRET)
     )
-
 
     if response.status_code != 200:
         return {
             "message": "Error al obtener el token."
         }, 404
 
-    return {
-       "Authorization": f"Bearer {response.json()["access_token"]}"
-    }
+    return response.json()["access_token"]
 
+
+
+# Función para obtener los id's de los artistas del usuario
+def obtener_idartista(token, artista):
+
+    response = requests.get(
+        "https://api.spotify.com/v1/search",
+        params={
+            "q": artista,
+            "type": "artist",
+            "limit": 1
+        },
+        headers={
+            "Authorization": f"Bearer {token}"
+        }
+    )
+
+    return response.json()["artists"]["items"][0]["id"]
+    
+
+# Endpoint que obtiene información sobre los artistas de un usuario
+@app.route("/obtener_info_artistas/<nickname>")
+def obtener_info_artistas(nickname):
+
+    discografia = []
+
+    token = obtener_token()
+
+    for usuario in USUARIOS:
+        if usuario["nickname"] == nickname:
+            for artista in usuario["gustos_musicales"]["artistas"]:
+                id_artista = obtener_idartista(token, artista)
+                albumes = []
+                response = requests.get(
+                    f"https://api.spotify.com/v1/artists/{id_artista}/albums",
+                    params={
+                        "include_groups": "album",
+                        "market": "ES",
+                    },
+                    headers={
+                        "Authorization": f"Bearer {token}"
+                    }
+                )         
+                print(response.headers)
+                if response.status_code == 429:
+                    return {
+                        "message": "Has enviado muchas peticiones. Espera un rato para volver a intentarlo."
+                    }, 429
+                print(response.json())
+                for item in response.json()["items"]:
+                    nuevo_album = {
+                        "título": item["name"], 
+                        "fecha_lanzamiento": item["release_date"],
+                        "nº canciones": item["total_tracks"]
+                    }
+                    albumes.append(nuevo_album)
+
+                discografia.append(
+                    {
+                        "artista" : artista,
+                        "albumes": albumes
+                    }
+                )
+
+    return discografia, 200
 
 
 # Run the Flask application
