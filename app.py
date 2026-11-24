@@ -161,6 +161,8 @@ def obtener_info_artistas(nickname):
 
     for usuario in USUARIOS:
         if usuario["nickname"] == nickname:
+            if "gustos_musicales" not in usuario:
+                return {"message": f"El usuario {nickname} no tiene preferencias musicales guardadas"}, 404 
             for artista in usuario["gustos_musicales"]["artistas"]:
                 id_artista = obtener_idartista(token, artista)
                 albumes = []
@@ -173,13 +175,13 @@ def obtener_info_artistas(nickname):
                     headers={
                         "Authorization": f"Bearer {token}"
                     }
-                )         
-                print(response.headers)
+                )       
+
                 if response.status_code == 429:
                     return {
                         "message": "Has enviado muchas peticiones. Espera un rato para volver a intentarlo."
                     }, 429
-                print(response.json())
+                
                 for item in response.json()["items"]:
                     nuevo_album = {
                         "título": item["name"], 
@@ -194,9 +196,13 @@ def obtener_info_artistas(nickname):
                         "albumes": albumes
                     }
                 )
+                          
+            return discografia, 200
 
-    return discografia, 200
-
+        return {
+            "message": "No existe ese usuario."
+        }, 404
+    
 
 # Run the Flask application
 if __name__ == "__main__":
